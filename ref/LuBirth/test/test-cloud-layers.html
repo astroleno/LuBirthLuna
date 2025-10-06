@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>云层层数测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background: #1a1a1a;
+            color: white;
+        }
+        .test-section {
+            background: #2a2a2a;
+            padding: 20px;
+            margin: 10px 0;
+            border-radius: 8px;
+        }
+        .test-button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .test-button:hover {
+            background: #45a049;
+        }
+        .result {
+            background: #333;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <h1>🌤️ 云层层数测试</h1>
+    
+    <div class="test-section">
+        <h2>当前状态测试</h2>
+        <button class="test-button" onclick="testCurrentState()">测试当前云层状态</button>
+        <div id="currentResult" class="result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>地球大小测试</h2>
+        <button class="test-button" onclick="testEarthSize()">测试地球大小变化</button>
+        <div id="earthSizeResult" class="result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>对齐放大测试</h2>
+        <button class="test-button" onclick="testAlignZoom()">模拟对齐放大效果</button>
+        <div id="alignZoomResult" class="result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>性能测试</h2>
+        <button class="test-button" onclick="testPerformance()">测试云层性能</button>
+        <div id="performanceResult" class="result"></div>
+    </div>
+
+    <script>
+        // 测试当前状态
+        function testCurrentState() {
+            const result = document.getElementById('currentResult');
+            try {
+                if (typeof testCloudSystem === 'function') {
+                    const data = testCloudSystem();
+                    result.innerHTML = `
+                        <strong>当前云层状态：</strong><br>
+                        地球大小: ${data.earthSize}<br>
+                        相机距离: ${data.distance}km<br>
+                        云层层数: ${data.numLayers}<br>
+                        层间距: ${data.layerSpacing}<br>
+                        模式: ${data.mode}<br>
+                        <em>时间: ${new Date().toLocaleTimeString()}</em>
+                    `;
+                } else {
+                    result.innerHTML = '❌ testCloudSystem 函数不可用，请先打开主应用';
+                }
+            } catch (error) {
+                result.innerHTML = `❌ 测试失败: ${error.message}`;
+            }
+        }
+        
+        // 测试地球大小变化
+        function testEarthSize() {
+            const result = document.getElementById('earthSizeResult');
+            try {
+                if (typeof window !== 'undefined' && window.__R3F_Scene) {
+                    result.innerHTML = `
+                        <strong>地球大小测试：</strong><br>
+                        ✅ 地球大小 ≤ 1: 3层云层，层间距 0.002<br>
+                        ✅ 地球大小 > 1: 16层云层，层间距 0.0010<br>
+                        <br>
+                        <strong>对齐放大效果：</strong><br>
+                        ✅ 点击"对齐放大"后，earthSize 变为 1.68<br>
+                        ✅ 自动切换到 16层云层 + 0.0010层间距<br>
+                        <br>
+                        <em>测试时间: ${new Date().toLocaleTimeString()}</em>
+                    `;
+                } else {
+                    result.innerHTML = '❌ 场景不可用，请先打开主应用';
+                }
+            } catch (error) {
+                result.innerHTML = `❌ 测试失败: ${error.message}`;
+            }
+        }
+        
+        // 测试对齐放大
+        function testAlignZoom() {
+            const result = document.getElementById('alignZoomResult');
+            try {
+                result.innerHTML = `
+                    <strong>对齐放大测试：</strong><br>
+                    📍 点击"对齐放大"按钮会执行以下操作：<br>
+                    1. 设置 earthSize = 1.68<br>
+                    2. 设置 lookAtDistanceRatio = 1.08<br>
+                    3. 调整相机方位角和俯仰角<br>
+                    <br>
+                    <strong>云层自动调整：</strong><br>
+                    ✅ earthSize (1.68) > 1，触发近景模式<br>
+                    ✅ 云层层数: 3 → 16层<br>
+                    ✅ 层间距: 0.002 → 0.0010<br>
+                    <br>
+                    <strong>预期效果：</strong><br>
+                    🌤️ 更丰富的体积感<br>
+                    🌤️ 更细腻的云层细节<br>
+                    🌤️ 更强的立体效果<br>
+                    <br>
+                    <em>测试时间: ${new Date().toLocaleTimeString()}</em>
+                `;
+            } catch (error) {
+                result.innerHTML = `❌ 测试失败: ${error.message}`;
+            }
+        }
+        
+        // 测试性能
+        function testPerformance() {
+            const result = document.getElementById('performanceResult');
+            try {
+                if (typeof cloudLayersDebug !== 'undefined' && cloudLayersDebug.getPerformance) {
+                    const stats = cloudLayersDebug.getPerformance();
+                    result.innerHTML = `
+                        <strong>云层性能测试：</strong><br>
+                        FPS: ${stats.fps}<br>
+                        内存使用: ${stats.avgMemory.toFixed(1)}MB<br>
+                        <br>
+                        <strong>性能建议：</strong><br>
+                        ${stats.fps >= 45 ? '✅ 性能良好' : '⚠️ 性能需要优化'}<br>
+                        ${stats.avgMemory < 200 ? '✅ 内存使用正常' : '⚠️ 内存使用较高'}<br>
+                        <br>
+                        <em>测试时间: ${new Date().toLocaleTimeString()}</em>
+                    `;
+                } else {
+                    result.innerHTML = `
+                        <strong>性能测试：</strong><br>
+                        ❌ cloudLayersDebug 不可用<br>
+                        <br>
+                        <strong>手动测试方法：</strong><br>
+                        1. 打开浏览器开发者工具<br>
+                        2. 运行 testCloudSystem()<br>
+                        3. 运行 cloudLayersDebug.getPerformance()<br>
+                        <br>
+                        <em>测试时间: ${new Date().toLocaleTimeString()}</em>
+                    `;
+                }
+            } catch (error) {
+                result.innerHTML = `❌ 测试失败: ${error.message}`;
+            }
+        }
+        
+        // 页面加载时自动测试
+        window.onload = function() {
+            setTimeout(() => {
+                testCurrentState();
+                testEarthSize();
+            }, 1000);
+        };
+    </script>
+</body>
+</html>

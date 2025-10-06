@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>出生点对齐测试</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background: #1a1a1a;
+            color: white;
+        }
+        .test-container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .test-section {
+            background: #2a2a2a;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #444;
+        }
+        .test-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #4CAF50;
+        }
+        .test-step {
+            margin: 10px 0;
+            padding: 10px;
+            background: #333;
+            border-radius: 4px;
+            border-left: 4px solid #2196F3;
+        }
+        .expected-result {
+            margin-top: 10px;
+            padding: 10px;
+            background: #1b5e20;
+            border-radius: 4px;
+            border-left: 4px solid #4CAF50;
+        }
+        .console-output {
+            background: #000;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+            margin-top: 10px;
+        }
+        .button {
+            background: #2196F3;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .button:hover {
+            background: #1976D2;
+        }
+        .success {
+            color: #4CAF50;
+        }
+        .error {
+            color: #f44336;
+        }
+        .warning {
+            color: #ff9800;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <div class="test-section">
+            <div class="test-title">出生点对齐功能测试</div>
+            <div class="test-step">
+                <strong>测试目的：</strong>验证出生点对齐功能是否正常工作，确保出生点能正确对齐到屏幕中央。
+            </div>
+            <div class="test-step">
+                <strong>问题描述：</strong>
+                <ul>
+                    <li>默认显示基本是本初子午线对齐</li>
+                    <li>点击对齐出生点还是美中（没有对齐到正确的位置）</li>
+                    <li>说明修改有前后矛盾的地方</li>
+                </ul>
+            </div>
+            <div class="expected-result">
+                <strong>修复内容：</strong>
+                <ul>
+                    <li>✅ 移除了20度经度偏移，使用直接的经度计算</li>
+                    <li>✅ 移除了出生点对齐模式下的Y轴偏移</li>
+                    <li>✅ 修正了默认经度值从-20改为0</li>
+                    <li>✅ 添加了详细的调试信息</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="test-section">
+            <div class="test-title">测试步骤</div>
+            <div class="test-step">
+                <strong>步骤1：检查默认状态</strong>
+                <div>打开页面，查看默认显示是否为本初子午线（0°经线）对齐</div>
+                <button class="button" onclick="checkDefaultState()">检查默认状态</button>
+            </div>
+            
+            <div class="test-step">
+                <strong>步骤2：启用出生点对齐</strong>
+                <div>点击"出生点对齐"复选框，启用对齐功能</div>
+                <button class="button" onclick="enableBirthPointAlignment()">启用出生点对齐</button>
+            </div>
+            
+            <div class="test-step">
+                <strong>步骤3：测试不同经度</strong>
+                <div>测试不同经度的出生点对齐效果</div>
+                <button class="button" onclick="testLongitude(116)">北京 (116°E)</button>
+                <button class="button" onclick="testLongitude(121)">上海 (121°E)</button>
+                <button class="button" onclick="testLongitude(113)">广州 (113°E)</button>
+                <button class="button" onclick="testLongitude(0)">本初子午线 (0°)</button>
+            </div>
+            
+            <div class="test-step">
+                <strong>步骤4：测试纬度影响</strong>
+                <div>测试不同纬度对对齐效果的影响</div>
+                <button class="button" onclick="testLatitude(40)">高纬度 (40°N)</button>
+                <button class="button" onclick="testLatitude(0)">赤道 (0°)</button>
+                <button class="button" onclick="testLatitude(-30)">低纬度 (30°S)</button>
+            </div>
+            
+            <div class="test-step">
+                <strong>步骤5：验证调试信息</strong>
+                <div>查看控制台输出的调试信息，验证计算是否正确</div>
+                <button class="button" onclick="checkConsoleOutput()">检查控制台输出</button>
+            </div>
+        </div>
+
+        <div class="test-section">
+            <div class="test-title">预期结果</div>
+            <div class="expected-result">
+                <strong>成功的表现：</strong>
+                <ul>
+                    <li>✅ 默认状态显示本初子午线对齐</li>
+                    <li>✅ 启用出生点对齐后，相机正确旋转到指定经度</li>
+                    <li>✅ 出生点标记出现在屏幕中央</li>
+                    <li>✅ 不同经度的位置差异明显可见</li>
+                    <li>✅ 纬度变化影响相机的俯仰角</li>
+                    <li>✅ 控制台输出详细的计算过程</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="test-section">
+            <div class="test-title">调试信息</div>
+            <div class="console-output" id="consoleOutput">
+                等待测试执行...
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let testWindow = null;
+        
+        function log(message, type = 'info') {
+            const output = document.getElementById('consoleOutput');
+            const timestamp = new Date().toLocaleTimeString();
+            const colorClass = type === 'success' ? 'success' : type === 'error' ? 'error' : type === 'warning' ? 'warning' : '';
+            const coloredMessage = colorClass ? `<span class="${colorClass}">${message}</span>` : message;
+            output.innerHTML += `<div>[${timestamp}] ${coloredMessage}</div>`;
+            output.scrollTop = output.scrollHeight;
+        }
+        
+        function checkDefaultState() {
+            log('检查默认状态...', 'info');
+            // 这里应该检查默认的相机位置和地球朝向
+            log('期望：默认显示本初子午线对齐', 'info');
+            log('实际：需要手动验证', 'warning');
+        }
+        
+        function enableBirthPointAlignment() {
+            log('启用出生点对齐...', 'info');
+            if (testWindow) {
+                try {
+                    testWindow.setBirthPointAlignment(true);
+                    log('✅ 出生点对齐已启用', 'success');
+                } catch (e) {
+                    log('❌ 启用失败：' + e.message, 'error');
+                }
+            } else {
+                log('❌ 测试窗口未打开', 'error');
+            }
+        }
+        
+        function testLongitude(lon) {
+            log(`测试经度 ${lon}°...`, 'info');
+            if (testWindow) {
+                try {
+                    testWindow.setBirthPointAlignment(true, lon, 0);
+                    log(`✅ 已设置经度为 ${lon}°`, 'success');
+                } catch (e) {
+                    log('❌ 设置失败：' + e.message, 'error');
+                }
+            } else {
+                log('❌ 测试窗口未打开', 'error');
+            }
+        }
+        
+        function testLatitude(lat) {
+            log(`测试纬度 ${lat}°...`, 'info');
+            if (testWindow) {
+                try {
+                    testWindow.setBirthPointAlignment(true, 0, lat);
+                    log(`✅ 已设置纬度为 ${lat}°`, 'success');
+                } catch (e) {
+                    log('❌ 设置失败：' + e.message, 'error');
+                }
+            } else {
+                log('❌ 测试窗口未打开', 'error');
+            }
+        }
+        
+        function checkConsoleOutput() {
+            log('检查控制台输出...', 'info');
+            log('期望：看到 [BirthPointAlignment] 和 [SimpleCamera] 的调试信息', 'info');
+            log('实际：需要在浏览器控制台中查看', 'warning');
+        }
+        
+        // 打开测试窗口
+        function openTestWindow() {
+            testWindow = window.open('/simple-test.html?debug=1', 'testWindow', 'width=1200,height=800');
+            log('测试窗口已打开', 'success');
+        }
+        
+        // 页面加载完成后自动打开测试窗口
+        window.addEventListener('load', () => {
+            log('页面加载完成，准备测试...', 'info');
+            setTimeout(openTestWindow, 1000);
+        });
+    </script>
+</body>
+</html>

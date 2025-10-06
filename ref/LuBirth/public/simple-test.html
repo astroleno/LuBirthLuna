@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>简单贴图测试</title>
+    <link rel="icon" type="image/png" sizes="128x128" href="/favicon.png">
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background: #1a1a1a;
+            color: #fff;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        .test-item {
+            margin: 10px 0;
+            padding: 10px;
+            background: #2a2a2a;
+            border-radius: 5px;
+        }
+        .success {
+            color: #4CAF50;
+        }
+        .error {
+            color: #f44336;
+        }
+        img {
+            max-width: 150px;
+            height: auto;
+            border: 1px solid #444;
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>简单贴图测试</h1>
+        <div id="results"></div>
+    </div>
+
+    <script>
+        const paths = [
+            '/textures/8k_earth_clouds.jpg',
+            '/textures/2k_earth_clouds.jpg'
+        ];
+        
+        const results = document.getElementById('results');
+        
+        paths.forEach(path => {
+            const div = document.createElement('div');
+            div.className = 'test-item';
+            div.innerHTML = `测试: ${path}`;
+            results.appendChild(div);
+            
+            const img = document.createElement('img');
+            img.src = path + '?t=' + Date.now();
+            
+            img.onload = function() {
+                div.className = 'test-item success';
+                div.innerHTML = `✅ 成功: ${path} (${img.naturalWidth}x${img.naturalHeight})`;
+                div.appendChild(img);
+            };
+            
+            img.onerror = function() {
+                div.className = 'test-item error';
+                div.innerHTML = `❌ 失败: ${path}`;
+            };
+        });
+    </script>
+</body>
+</html>

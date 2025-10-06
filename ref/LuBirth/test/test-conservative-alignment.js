@@ -1,0 +1,89 @@
+// 测试保守对齐算法
+// 在浏览器控制台中运行此脚本
+
+console.log('=== 保守对齐算法测试 ===');
+
+// 测试北京天安门
+const testPoint = { name: '北京天安门', lon: 116.3974, lat: 39.9093 };
+
+console.log('开始测试保守对齐算法...');
+console.log('修复内容: 进一步减小旋转角度，使用0.1缩放因子');
+console.log('测试点:', testPoint.name, '坐标:', testPoint.lon, testPoint.lat);
+
+// 计算角度差
+const targetLon = 180;
+const targetLat = 80;
+const longitudeDiff = targetLon - testPoint.lon;
+const latitudeDiff = targetLat - testPoint.lat;
+
+console.log('目标位置: 经度=180°, 纬度=80°');
+console.log('经度差:', longitudeDiff.toFixed(1), '°');
+console.log('纬度差:', latitudeDiff.toFixed(1), '°');
+console.log('预期yaw:', (longitudeDiff * 0.1).toFixed(1), '°');
+console.log('预期pitch:', (latitudeDiff * 0.1).toFixed(1), '°');
+
+// 设置出生点对齐
+if (window.setBirthPointAlignment) {
+  window.setBirthPointAlignment(true, testPoint.lon, testPoint.lat, 10);
+  console.log('✅ 出生点对齐已设置');
+} else {
+  console.error('❌ setBirthPointAlignment 函数未找到');
+}
+
+// 显示红色标记
+if (window.setBirthPointMarker) {
+  window.setBirthPointMarker(true, 0.1, '#ff0000');
+  console.log('✅ 红色标记已显示');
+} else {
+  console.error('❌ setBirthPointMarker 函数未找到');
+}
+
+// 测试不同相位差
+const phaseShifts = [0, 90, 180, 270];
+let index = 0;
+
+function testPhaseShift() {
+  if (index >= phaseShifts.length) {
+    console.log('\n=== 测试完成 ===');
+    console.log('观察要点:');
+    console.log('1. 相机旋转是否在合理范围内？');
+    console.log('2. 红色标记是否准确显示在北京天安门位置？');
+    console.log('3. 出生点是否对齐到球体的180°经度、北纬80°位置？');
+    console.log('4. 哪个相位差效果最好？');
+    return;
+  }
+  
+  const phaseShift = phaseShifts[index];
+  console.log(`\n${index + 1}. 测试相位差: ${phaseShift}°`);
+  
+  // 计算调整后的角度差
+  const adjustedLonDiff = targetLon - (testPoint.lon + phaseShift);
+  const adjustedLatDiff = targetLat - testPoint.lat;
+  const expectedYaw = adjustedLonDiff * 0.1;
+  const expectedPitch = adjustedLatDiff * 0.1;
+  
+  console.log(`   调整后经度差: ${adjustedLonDiff.toFixed(1)}°`);
+  console.log(`   调整后纬度差: ${adjustedLatDiff.toFixed(1)}°`);
+  console.log(`   预期yaw: ${expectedYaw.toFixed(1)}°`);
+  console.log(`   预期pitch: ${expectedPitch.toFixed(1)}°`);
+  
+  // 设置相位差
+  if (window.setLongitudePhaseShift) {
+    window.setLongitudePhaseShift(phaseShift);
+    console.log(`✅ 相位差已设置为 ${phaseShift}°`);
+  } else {
+    console.error('❌ setLongitudePhaseShift 函数未找到');
+    return;
+  }
+  
+  console.log('观察要点:');
+  console.log('1. 相机旋转是否在合理范围内？');
+  console.log('2. 红色标记位置是否正确？');
+  console.log('3. 地球构图是否保持一致？');
+  
+  index++;
+  setTimeout(testPhaseShift, 3000); // 等待3秒后测试下一个
+}
+
+// 开始测试
+setTimeout(testPhaseShift, 1000);

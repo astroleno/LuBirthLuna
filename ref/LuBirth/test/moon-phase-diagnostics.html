@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>月相问题诊断</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            background: #1a1a1a;
+            color: #00ff00;
+            padding: 20px;
+            margin: 0;
+        }
+        .console {
+            background: #000;
+            border: 1px solid #333;
+            padding: 15px;
+            border-radius: 5px;
+            height: 600px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            font-size: 12px;
+        }
+        .controls {
+            margin: 20px 0;
+        }
+        button {
+            background: #333;
+            color: #fff;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #555;
+        }
+        .info {
+            background: #222;
+            padding: 10px;
+            border-radius: 3px;
+            margin: 10px 0;
+            border-left: 4px solid #00ff00;
+        }
+    </style>
+</head>
+<body>
+    <h1>月相问题诊断工具</h1>
+    
+    <div class="info">
+        <strong>说明：</strong>此工具用于诊断月相显示问题，分析为什么只显示左边变化。
+    </div>
+    
+    <div class="controls">
+        <button onclick="runDiagnostics()">运行完整诊断</button>
+        <button onclick="testPhaseCycle()">测试月相周期</button>
+        <button onclick="testKeyPhases()">测试关键月相点</button>
+        <button onclick="testCameraFollow()">分析相机跟随机制</button>
+        <button onclick="diagnoseCoords()">诊断坐标系问题</button>
+        <button onclick="clearConsole()">清空控制台</button>
+    </div>
+    
+    <div id="console" class="console"></div>
+    
+    <script type="module">
+        // 导入诊断函数
+        import { 
+            runAllDiagnostics, 
+            testMoonPhaseCycle, 
+            testKeyMoonPhases, 
+            testCameraFollowMechanism, 
+            diagnoseCoordinateSystem 
+        } from './moon-phase-diagnostics.js';
+        
+        // 控制台输出重定向
+        const consoleElement = document.getElementById('console');
+        const originalLog = console.log;
+        
+        console.log = function(...args) {
+            const message = args.map(arg => 
+                typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+            ).join(' ');
+            
+            consoleElement.textContent += message + '\n';
+            consoleElement.scrollTop = consoleElement.scrollHeight;
+            
+            // 同时输出到真实控制台
+            originalLog.apply(console, args);
+        };
+        
+        // 全局函数
+        window.runDiagnostics = () => {
+            console.log('=== 开始运行完整诊断 ===\n');
+            runAllDiagnostics();
+        };
+        
+        window.testPhaseCycle = () => {
+            console.log('=== 测试月相周期 ===\n');
+            testMoonPhaseCycle();
+        };
+        
+        window.testKeyPhases = () => {
+            console.log('=== 测试关键月相点 ===\n');
+            testKeyMoonPhases();
+        };
+        
+        window.testCameraFollow = () => {
+            console.log('=== 分析相机跟随机制 ===\n');
+            testCameraFollowMechanism();
+        };
+        
+        window.diagnoseCoords = () => {
+            console.log('=== 诊断坐标系问题 ===\n');
+            diagnoseCoordinateSystem();
+        };
+        
+        window.clearConsole = () => {
+            consoleElement.textContent = '';
+        };
+        
+        // 页面加载完成后自动运行基础诊断
+        window.addEventListener('load', () => {
+            console.log('月相诊断工具已加载完成\n');
+            console.log('建议首先运行"测试月相周期"来查看月相角度变化是否正常\n');
+        });
+    </script>
+</body>
+</html>
