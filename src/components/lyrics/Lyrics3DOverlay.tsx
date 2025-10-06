@@ -2,6 +2,8 @@ import React from 'react';
 import * as THREE from 'three';
 import { useThree, useFrame } from '@react-three/fiber';
 import { Text } from '@react-three/drei';
+// 可选依赖：@react-three/postprocessing（若未安装则自动跳过Bloom）
+let Post: any = null; try { Post = require('@react-three/postprocessing'); } catch {}
 import { LRC_LYRICS } from '@/constants';
 import { getScreenAnchoredPosition } from '@/scenes/simple/utils/positionUtils';
 
@@ -255,7 +257,7 @@ export default function Lyrics3DOverlay({ audioRef, distance = 8, baseOffsetX = 
       if (mat) {
         mat.depthTest = true;
         mat.depthWrite = true;
-        mat.transparent = false;
+        mat.transparent = true;
         mat.needsUpdate = true;
       }
     } catch {}
@@ -264,6 +266,12 @@ export default function Lyrics3DOverlay({ audioRef, distance = 8, baseOffsetX = 
 
   return (
     <group ref={groupRef} renderOrder={forceFront ? 2000 : 200}>
+      {/* 发光后处理：若已安装 @react-three/postprocessing 才渲染 */}
+      {Post && (
+        <Post.EffectComposer disableNormalPass multisampling={0}>
+          <Post.Bloom luminanceThreshold={0.82} luminanceSmoothing={0.15} intensity={5.0} radius={0.35} mipmapBlur />
+        </Post.EffectComposer>
+      )}
       {currentIndex > 1 && data[currentIndex - 2] && (
         <Text
           position={[sideX(currentIndex - 2), effectiveOffsetY * 2 + extraY(currentIndex - 2), zShift(currentIndex - 2)]} // 上上行Y=+2*行距 + 补偿
@@ -274,7 +282,7 @@ export default function Lyrics3DOverlay({ audioRef, distance = 8, baseOffsetX = 
           textAlign={anchorFor(currentIndex - 2)}
           maxWidth={8}
           onSync={tuneMaterial}
-          outlineWidth={0.008}
+          outlineWidth={0.002} // 勾边宽度
           outlineColor="#000"
         >
           {data[currentIndex - 2].text}
@@ -290,7 +298,7 @@ export default function Lyrics3DOverlay({ audioRef, distance = 8, baseOffsetX = 
           textAlign={anchorFor(currentIndex - 1)}
           maxWidth={8}
           onSync={tuneMaterial}
-          outlineWidth={0.008}
+          outlineWidth={0.002} // 勾边宽度
           outlineColor="#000"
         >
           {prev.text}
@@ -300,14 +308,16 @@ export default function Lyrics3DOverlay({ audioRef, distance = 8, baseOffsetX = 
         <Text
           position={[sideX(currentIndex), 0 + extraY(currentIndex), zShift(currentIndex)]} // 当前行Y=0 + 前/后额外补偿
           fontSize={fontSize * scaleFor(currentIndex)} // 当前行字号=基础字号*缩放
-          color={colorFor(currentIndex)}
-          outlineWidth={0.012}
-          outlineColor="#000"
+          color={'#ffe05a'} // 当前行发光基色
+          outlineWidth={0.06} // 仅当前行做柔光描边
+          outlineOpacity={0.28}
+          outlineBlur={0.6}
+          outlineColor={'#ffe05a'}
           anchorX={anchorFor(currentIndex)}
           anchorY="middle"
           textAlign={anchorFor(currentIndex)}
           maxWidth={8}
-          onSync={tuneMaterial}
+          onSync={(obj:any)=>{ try{ const m=obj?.material; if (!m) return; m.depthTest=true; m.depthWrite=true; m.transparent=true; if('toneMapped' in m) (m as any).toneMapped=false; m.needsUpdate=true; }catch{} }}
         >
           {cur.text}
         </Text>

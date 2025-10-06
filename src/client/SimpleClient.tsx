@@ -555,7 +555,7 @@ function SceneContent({
       {(composition.showMoon ?? true) && (
       <Moon
         position={moonInfo.position}
-        radius={composition.moonRadius * 1.5} // 调整月球半径为 1.5 倍；还原请改回 composition.moonRadius
+        radius={composition.moonRadius * 1.8} // 调整月球半径为 1.5 倍；还原请改回 composition.moonRadius
         lightDirection={lightDirection}
         useTextures={composition.useTextures}
         lightColor={lightColor}
