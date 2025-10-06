@@ -17,6 +17,18 @@ type Props = {
   distance?: number; // 距相机距离
   baseOffsetX?: number;
   baseOffsetY?: number;
+  // 是否启用连续滚动模式：'legacy' 保持原先五行离散排布；'scroll' 连续滚动
+  // URL 可用 ?lyricsmode=scroll 覆盖此配置
+  scrollMode?: 'legacy' | 'scroll';
+  // 连续滚动模式下，可视窗口上下各渲染几行（总行数约= 2*windowLines+1）
+  windowLines?: number;
+  // 滚动类型：byline=按行时长，constant=常速（不依赖音频播放）
+  scrollType?: 'byline' | 'constant';
+  // 常速滚动时，每秒滚过的“行数”（行/秒）。例如 0.5 表示 2 秒一行
+  constantLinesPerSecond?: number;
+  // 视觉速度缩放：前景/后景行的位移缩放系数（近快远慢）。仅影响渲染位移，不改变时间轴
+  frontParallaxScale?: number; // 默认 1.1（前景稍快）
+  backParallaxScale?: number;  // 默认 0.9（后景稍慢）
 };
 
 type Line = { time: number; text: string };
@@ -65,16 +77,28 @@ function parseLRCAll(lrc: string): Line[] {
   return sorted;
 }
 
-export default function Lyrics3DOverlay({ audioRef, distance = 8, baseOffsetX = 1.6, baseOffsetY = 0.8 }: Props) {
-  const { camera, scene } = useThree();
+export default function Lyrics3DOverlay({ audioRef, distance = 8, baseOffsetX = 1.6, baseOffsetY = 0.8, scrollMode = 'legacy', windowLines = 6, scrollType = 'byline', constantLinesPerSecond = 0.35, frontParallaxScale = 1.1, backParallaxScale = 0.9 }: Props) {
+  const { camera, scene, invalidate } = useThree() as any;
   // URL 可调参数：字体大小、偏移、深度系数
   const url = React.useMemo(() => new URLSearchParams(location.search), []);
   const uiFontSize = React.useMemo(() => parseFloat(url.get('lyricsfs') || '') || NaN, [url]); // 字号覆盖: ?lyricsfs=0.56
   const uiOffsetX = React.useMemo(() => parseFloat(url.get('lyricsdx') || '') || NaN, [url]);  // 左右距离: ?lyricsdx=1.85
   const uiOffsetY = React.useMemo(() => parseFloat(url.get('lyricsdy') || '') || NaN, [url]);  // 上下行距: ?lyricsdy=0.92
   const uiDzScale = React.useMemo(() => parseFloat(url.get('lyricsdz') || '') || NaN, [url]);  // 前后层次强度: ?lyricsdz=1.8
+  const uiMode = React.useMemo(() => (url.get('lyricsmode') || '').toLowerCase(), [url]); // 模式: legacy|scroll
+  const uiWindow = React.useMemo(() => parseInt(url.get('lyricswin') || '', 10), [url]); // 窗口行数
+  const uiScrollType = React.useMemo(() => (url.get('lyricstype') || '').toLowerCase(), [url]); // byline|constant
+  const uiConstLps = React.useMemo(() => parseFloat(url.get('lyricslps') || ''), [url]); // 每秒行数
+  const uiFrontScale = React.useMemo(() => parseFloat(url.get('lyricsfront') || ''), [url]); // 前景缩放
+  const uiBackScale = React.useMemo(() => parseFloat(url.get('lyricsback') || ''), [url]);   // 后景缩放
   const effectiveOffsetX = isNaN(uiOffsetX) ? baseOffsetX : uiOffsetX; // 左右距离默认=baseOffsetX，可被 URL 覆盖
   const effectiveOffsetY = isNaN(uiOffsetY) ? baseOffsetY : uiOffsetY; // 行距默认=baseOffsetY，可被 URL 覆盖
+  const effectiveMode: 'legacy' | 'scroll' = uiMode === 'scroll' ? 'scroll' : scrollMode;
+  const effectiveWindowLines = Number.isFinite(uiWindow) && uiWindow! > 0 ? (uiWindow as number) : windowLines;
+  const effectiveScrollType: 'byline' | 'constant' = uiScrollType === 'constant' ? 'constant' : scrollType;
+  const effectiveConstLps = Number.isFinite(uiConstLps) && !isNaN(uiConstLps!) && uiConstLps! > 0 ? (uiConstLps as number) : constantLinesPerSecond;
+  const effectiveFrontScale = Number.isFinite(uiFrontScale) && !isNaN(uiFrontScale!) && uiFrontScale! > 0 ? (uiFrontScale as number) : frontParallaxScale;
+  const effectiveBackScale = Number.isFinite(uiBackScale) && !isNaN(uiBackScale!) && uiBackScale! > 0 ? (uiBackScale as number) : backParallaxScale;
   const data = React.useMemo(() => {
     try {
       const parsed = parseLRCAll(LRC_LYRICS || '');
@@ -91,12 +115,89 @@ export default function Lyrics3DOverlay({ audioRef, distance = 8, baseOffsetX = 
     ];
   }, []);
   const [currentIndex, setCurrentIndex] = React.useState(0);
+  // 连续滚动插值：scroll = idx + fraction，采用阻尼平滑
+  const scrollRef = React.useRef(0); // 当前渲染使用的连续滚动值
+  const targetScrollRef = React.useRef(0); // 由音频时间计算得到的目标滚动值
+  const startedRef = React.useRef(false); // 常速滚动首次对齐标记
+  // byline 智能兜底：若音频不可用/暂停/缓冲过久，则临时切到常速，恢复后再回到 byline
+  const autoConstantRef = React.useRef(false);
+  const stalledMsRef = React.useRef(0);
+  const STALL_THRESHOLD_MS = 350; // 超过该时长视为停滞，切到常速
+  const RECOVER_THRESHOLD_MS = 150; // 恢复阈值，低于该时长回到 byline
+  // 触发 React 重新渲染的nonce（使得基于 scrollRef 的 JSX 位置更新生效）
+  const [renderNonce, setRenderNonce] = React.useState(0);
+  const lastRenderedScrollRef = React.useRef(0);
+  const lastNonceTimeRef = React.useRef(0);
+  const MIN_NONCE_INTERVAL_MS = 16; // 节流触发渲染的最小间隔
+
+  // 在某些视图（例如特写）里，r3f 可能使用 frameloop="demand"，导致 useFrame 不自动推进。
+  // 这里增加一个 rAF 兜底时钟：持续推进滚动并主动 invalidate()，保证连续动画。
+  const rafIdRef = React.useRef<number | null>(null);
+  const lastTsRef = React.useRef<number | null>(null);
+  React.useEffect(() => {
+    if (effectiveMode !== 'scroll') return;
+    const tick = (ts: number) => {
+      try {
+        const last = lastTsRef.current;
+        lastTsRef.current = ts;
+        const delta = last ? Math.max(0, (ts - last) / 1000) : 0;
+        // 与 useFrame 相同的推进逻辑（简化版）：
+        const ref = audioRef.current ?? localAudioRef.current ?? (document.querySelector('audio') as HTMLAudioElement | null);
+        const t = ref && !isNaN(ref.currentTime) ? ref.currentTime : 0;
+        // 定位当前行
+        let lo = 0, hi = data.length - 1, idx = 0;
+        const EPS = 0.02;
+        while (lo <= hi) {
+          const mid = (lo + hi) >> 1;
+          if (t + EPS >= data[mid].time) { idx = mid; lo = mid + 1; } else { hi = mid - 1; }
+        }
+        // 即时兜底：推进优先
+        const playable = !!ref && ref.readyState >= 2 && !ref.seeking;
+        const advancing = playable && !ref.paused;
+        if (effectiveScrollType === 'byline' && advancing) {
+          const cur = data[idx];
+          const nxt = data[idx + 1] ?? cur;
+          const seg = Math.max(0.001, (nxt.time - cur.time) || 0.001);
+          const frac = THREE.MathUtils.clamp((t - cur.time) / seg, 0, 1);
+          targetScrollRef.current = idx + frac;
+          scrollRef.current = THREE.MathUtils.damp(scrollRef.current, targetScrollRef.current, 6, delta || 0.016);
+        } else {
+          if (!startedRef.current) {
+            scrollRef.current = idx;
+            targetScrollRef.current = idx;
+            startedRef.current = true;
+          }
+          const advance = effectiveConstLps * (delta || 0.016);
+          scrollRef.current += advance;
+          targetScrollRef.current = scrollRef.current;
+        }
+        // 节流触发 React 刷新 + 请求一帧渲染
+        try {
+          const now = performance.now();
+          if (Math.abs(scrollRef.current - lastRenderedScrollRef.current) > 0.001 && (now - lastNonceTimeRef.current) > MIN_NONCE_INTERVAL_MS) {
+            lastRenderedScrollRef.current = scrollRef.current;
+            lastNonceTimeRef.current = now;
+            setRenderNonce(n => (n + 1) & 0xffff);
+          }
+          invalidate && invalidate();
+        } catch {}
+      } catch {}
+      rafIdRef.current = window.requestAnimationFrame(tick);
+    };
+    rafIdRef.current = window.requestAnimationFrame(tick);
+    return () => {
+      if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+      lastTsRef.current = null;
+    };
+  }, [effectiveMode, effectiveScrollType, effectiveConstLps, audioRef, data]);
   // 调试：挂载时打印一次
   React.useEffect(() => {
     try {
-      console.log('[Lyrics3DOverlay] mounted, lines=', data.length);
+      console.log('[Lyrics3DOverlay] mounted, lines=', data.length, { mode: effectiveMode, type: effectiveScrollType, lps: effectiveConstLps, frontScale: effectiveFrontScale, backScale: effectiveBackScale });
+      console.log('[Lyrics3DOverlay] url.search=', location.search);
     } catch {}
-  }, [data.length]);
+  }, [data.length, effectiveMode, effectiveScrollType, effectiveConstLps, effectiveFrontScale, effectiveBackScale]);
 
   // 简单动画相位（用于上下轻微浮动和缩放）
   const animRef = React.useRef(0);
@@ -126,9 +227,7 @@ export default function Lyrics3DOverlay({ audioRef, distance = 8, baseOffsetX = 
     try {
       // 兜底：若外部未传入 audioRef，尝试获取页面上的 <audio>
       const ref = audioRef.current ?? localAudioRef.current ?? (document.querySelector('audio') as HTMLAudioElement | null);
-      // 未就绪或未播放则不推进
-      if (!ref || ref.paused || (ref.readyState < 2) || ref.seeking) return;
-      const t = !isNaN(ref.currentTime) ? ref.currentTime : 0;
+      const t = ref && !isNaN(ref.currentTime) ? ref.currentTime : 0;
       // 二分查找：找到最后一个 time <= t 的索引
       let lo = 0, hi = data.length - 1, idx = 0;
       const EPS = 0.02; // 20ms 容差
@@ -137,6 +236,44 @@ export default function Lyrics3DOverlay({ audioRef, distance = 8, baseOffsetX = 
         if (t + EPS >= data[mid].time) { idx = mid; lo = mid + 1; } else { hi = mid - 1; }
       }
       if (idx !== currentIndex) setCurrentIndex(idx);
+
+      if (effectiveMode === 'scroll') {
+        // 计算是否音频处于“可推进”状态
+        const playable = !!ref && ref.readyState >= 2 && !ref.seeking;
+        const advancing = playable && !ref.paused;
+        // 改为“即时兜底”：只要不在推进，就直接按常速推进；推进时再按行时长
+        if (effectiveScrollType === 'byline' && advancing) {
+          // 按行时长：依赖 audio 时间
+          const cur = data[idx];
+          const nxt = data[idx + 1] ?? cur;
+          const seg = Math.max(0.001, (nxt.time - cur.time) || 0.001);
+          const frac = THREE.MathUtils.clamp((t - cur.time) / seg, 0, 1);
+          const target = idx + frac;
+          targetScrollRef.current = target;
+          scrollRef.current = THREE.MathUtils.damp(scrollRef.current, targetScrollRef.current, 6, delta);
+        } else {
+          // 常速模式：与音频解耦，持续滚动（行/秒）
+          if (!startedRef.current) {
+            // 首帧：若能拿到音频时间，则从对应行对齐，否则从 0 对齐
+            scrollRef.current = idx;
+            targetScrollRef.current = idx;
+            startedRef.current = true;
+          }
+          const advance = effectiveConstLps * delta; // 本帧推进的“行数”
+          scrollRef.current += advance;
+          targetScrollRef.current = scrollRef.current;
+        }
+      }
+
+      // 节流触发 React 刷新，确保特写/按需帧下也能更新位置
+      try {
+        const now = performance.now();
+        if (Math.abs(scrollRef.current - lastRenderedScrollRef.current) > 0.001 && (now - lastNonceTimeRef.current) > MIN_NONCE_INTERVAL_MS) {
+          lastRenderedScrollRef.current = scrollRef.current;
+          lastNonceTimeRef.current = now;
+          setRenderNonce(n => (n + 1) & 0xffff);
+        }
+      } catch {}
 
       // 关闭呼吸动画：不再累积相位
       // animRef.current += delta;
@@ -245,9 +382,45 @@ export default function Lyrics3DOverlay({ audioRef, distance = 8, baseOffsetX = 
   };
 
   // 额外的前/后垂直补偿（近大远小造成的视觉补偿）
-  const FRONT_EXTRA_Y = 0.09; // 前（近）额外上移量（米，正值=向上）← 改这里
+  const FRONT_EXTRA_Y = 0.06; // 前（近）额外上移量（米，正值=向上）← 改这里
   const BACK_EXTRA_Y  = -0.03; // 后（远）额外下移量（米，负值=向下）← 改这里
   const extraY = (idx: number) => (((idx % 3) + 3) % 3) === 0 ? FRONT_EXTRA_Y : BACK_EXTRA_Y;
+
+  // 逻辑空行（不渲染，只通过位移体现“空一/两行”的视觉效果）
+  // 前层通常需要更大的空间，让“近大”不会挤压；后层可较小
+  const FRONT_GAP_LINES = 0; // 前层每级额外“空行数” ← 改这里（0/1/2）
+  const BACK_GAP_LINES  = 0; // 后层每级额外“空行数” ← 改这里（0/1/2）
+  const gapFor = (idx: number) => ((((idx % 3) + 3) % 3) === 0 ? FRONT_GAP_LINES : BACK_GAP_LINES);
+  // 将距离级数 n（上2行=2、上1行=1、下1行=1、下2行=2）放大为 n + gap*n
+  const mul = (n: number, idx: number) => n + gapFor(idx) * n;
+
+  // 屏幕等距：把“希望在屏幕上等距”的行距换算为世界偏移
+  // 目标屏幕行距（NDC，高度分数）；0.08≈每行占屏幕高8%
+  const SCREEN_SPACING_NDC = 0.08; // ← 改这里（0.06~0.12常用）
+  const worldStepFromScreen = (dist: number) => {
+    try {
+      const persp = camera as THREE.PerspectiveCamera;
+      const fov = (persp && 'fov' in persp) ? (persp as THREE.PerspectiveCamera).fov : 50;
+      const k = Math.tan(THREE.MathUtils.degToRad(fov / 2));
+      // 近似换算：NDC行距 * 距离 * tan(FOV/2) * 2
+      return SCREEN_SPACING_NDC * dist * k * 2;
+    } catch { return SCREEN_SPACING_NDC * dist * 0.5; }
+  };
+  const distForIndex = (idx: number) => {
+    try {
+      if (!groupRef.current) return camera.position.length();
+      const p = groupRef.current.position;
+      const linePos = new THREE.Vector3(p.x, p.y, p.z + zShift(idx));
+      return camera.position.distanceTo(linePos);
+    } catch { return camera.position.length(); }
+  };
+  // 多级（±1、±2级）世界偏移：按等距换算 + 逻辑空行倍增
+  const worldStepLevels = (levels: number, idx: number) => {
+    const dist = distForIndex(idx);
+    const base = worldStepFromScreen(dist);
+    const factor = (1 + gapFor(idx));
+    return levels * base * factor;
+  };
 
   // 统一字号（当前行不放大），仅颜色强调当前行
   const fontSize = 0.5; // 基础字号 ← 改这里
@@ -264,95 +437,158 @@ export default function Lyrics3DOverlay({ audioRef, distance = 8, baseOffsetX = 
   };
   const colorFor = (idx: number) => (idx === currentIndex ? '#ffffff' : '#a8a8a8');
 
+  // 渲染：根据模式选择 legacy（五行离散）或 scroll（窗口连续滚动）
   return (
-    <group ref={groupRef} renderOrder={forceFront ? 2000 : 200}>
+    <group ref={groupRef} renderOrder={forceFront ? 2000 : 200} key={renderNonce}>
       {/* 发光后处理：若已安装 @react-three/postprocessing 才渲染 */}
       {Post && (
         <Post.EffectComposer disableNormalPass multisampling={0}>
-          <Post.Bloom luminanceThreshold={0.82} luminanceSmoothing={0.15} intensity={5.0} radius={0.35} mipmapBlur />
+          <Post.Bloom luminanceThreshold={0.82} luminanceSmoothing={0.15} intensity={2.0} radius={0.35} mipmapBlur />
         </Post.EffectComposer>
       )}
-      {currentIndex > 1 && data[currentIndex - 2] && (
-        <Text
-          position={[sideX(currentIndex - 2), effectiveOffsetY * 2 + extraY(currentIndex - 2), zShift(currentIndex - 2)]} // 上上行Y=+2*行距 + 补偿
-          fontSize={fontSize * scaleFor(currentIndex - 2)}
-          color={colorFor(currentIndex - 2)}
-          anchorX={anchorFor(currentIndex - 2)}
-          anchorY="middle"
-          textAlign={anchorFor(currentIndex - 2)}
-          maxWidth={8}
-          onSync={tuneMaterial}
-          outlineWidth={0.002} // 勾边宽度
-          outlineColor="#000"
-        >
-          {data[currentIndex - 2].text}
-        </Text>
+
+      {effectiveMode === 'legacy' && (
+        <>
+           {currentIndex > 1 && data[currentIndex - 2] && (
+            <Text
+               position={[sideX(currentIndex - 2), worldStepLevels(2, currentIndex - 2) + extraY(currentIndex - 2), zShift(currentIndex - 2)]}
+              fontSize={fontSize * scaleFor(currentIndex - 2)}
+              color={colorFor(currentIndex - 2)}
+              anchorX={anchorFor(currentIndex - 2)}
+              anchorY="middle"
+              textAlign={anchorFor(currentIndex - 2)}
+              maxWidth={8}
+              onSync={tuneMaterial}
+              outlineWidth={0.002}
+              outlineColor="#000"
+            >
+              {data[currentIndex - 2].text}
+            </Text>
+          )}
+           {hasPrev && prev && (
+            <Text
+               position={[sideX(currentIndex - 1), worldStepLevels(1, currentIndex - 1) + extraY(currentIndex - 1), zShift(currentIndex - 1)]}
+              fontSize={fontSize * scaleFor(currentIndex - 1)}
+              color={colorFor(currentIndex - 1)}
+              anchorX={anchorFor(currentIndex - 1)}
+              anchorY="middle"
+              textAlign={anchorFor(currentIndex - 1)}
+              maxWidth={8}
+              onSync={tuneMaterial}
+              outlineWidth={0.002}
+              outlineColor="#000"
+            >
+              {prev.text}
+            </Text>
+          )}
+          {cur && (
+            <Text
+              position={[sideX(currentIndex), 0 + extraY(currentIndex), zShift(currentIndex)]}
+              fontSize={fontSize * scaleFor(currentIndex)}
+              color={'#ffe05a'}
+              outlineWidth={0.05}
+              outlineOpacity={0.1}
+              outlineBlur={0.8}
+              outlineColor={'#ffe05a'}
+              anchorX={anchorFor(currentIndex)}
+              anchorY="middle"
+              textAlign={anchorFor(currentIndex)}
+              maxWidth={8}
+              onSync={(obj:any)=>{ try{ const m=obj?.material; if (!m) return; m.depthTest=true; m.depthWrite=true; m.transparent=true; if('toneMapped' in m) (m as any).toneMapped=false; m.needsUpdate=true; }catch{} }}
+            >
+              {cur.text}
+            </Text>
+          )}
+           {next && (
+            <Text
+               position={[sideX(currentIndex + 1), -worldStepLevels(1, currentIndex + 1) + extraY(currentIndex + 1), zShift(currentIndex + 1)]}
+              fontSize={fontSize * scaleFor(currentIndex + 1)}
+              color={colorFor(currentIndex + 1)}
+              anchorX={anchorFor(currentIndex + 1)}
+              anchorY="middle"
+              textAlign={anchorFor(currentIndex + 1)}
+              maxWidth={8}
+              onSync={tuneMaterial}
+              outlineWidth={0.008}
+              outlineColor="#000"
+            >
+              {next.text}
+            </Text>
+          )}
+           {data[currentIndex + 2] && (
+            <Text
+               position={[sideX(currentIndex + 2), -worldStepLevels(2, currentIndex + 2) + extraY(currentIndex + 2), zShift(currentIndex + 2)]}
+              fontSize={fontSize * scaleFor(currentIndex + 2)}
+              color={colorFor(currentIndex + 2)}
+              anchorX={anchorFor(currentIndex + 2)}
+              anchorY="middle"
+              textAlign={anchorFor(currentIndex + 2)}
+              maxWidth={8}
+              onSync={tuneMaterial}
+              outlineWidth={0.008}
+              outlineColor="#000"
+            >
+              {data[currentIndex + 2].text}
+            </Text>
+          )}
+        </>
       )}
-      {hasPrev && prev && (
-        <Text
-          position={[sideX(currentIndex - 1), effectiveOffsetY + extraY(currentIndex - 1), zShift(currentIndex - 1)]} // 上一行Y偏移=+effectiveOffsetY + 前/后额外补偿
-          fontSize={fontSize * scaleFor(currentIndex - 1)} // 上一行字号=基础字号*缩放
-          color={colorFor(currentIndex - 1)}
-          anchorX={anchorFor(currentIndex - 1)}
-          anchorY="middle"
-          textAlign={anchorFor(currentIndex - 1)}
-          maxWidth={8}
-          onSync={tuneMaterial}
-          outlineWidth={0.002} // 勾边宽度
-          outlineColor="#000"
-        >
-          {prev.text}
-        </Text>
-      )}
-      {cur && (
-        <Text
-          position={[sideX(currentIndex), 0 + extraY(currentIndex), zShift(currentIndex)]} // 当前行Y=0 + 前/后额外补偿
-          fontSize={fontSize * scaleFor(currentIndex)} // 当前行字号=基础字号*缩放
-          color={'#ffe05a'} // 当前行发光基色
-          outlineWidth={0.06} // 仅当前行做柔光描边
-          outlineOpacity={0.28}
-          outlineBlur={0.6}
-          outlineColor={'#ffe05a'}
-          anchorX={anchorFor(currentIndex)}
-          anchorY="middle"
-          textAlign={anchorFor(currentIndex)}
-          maxWidth={8}
-          onSync={(obj:any)=>{ try{ const m=obj?.material; if (!m) return; m.depthTest=true; m.depthWrite=true; m.transparent=true; if('toneMapped' in m) (m as any).toneMapped=false; m.needsUpdate=true; }catch{} }}
-        >
-          {cur.text}
-        </Text>
-      )}
-      {next && (
-        <Text
-          position={[sideX(currentIndex + 1), -effectiveOffsetY + extraY(currentIndex + 1), zShift(currentIndex + 1)]} // 下一行Y偏移=-effectiveOffsetY + 前/后额外补偿
-          fontSize={fontSize * scaleFor(currentIndex + 1)} // 下一行字号=基础字号*缩放
-          color={colorFor(currentIndex + 1)}
-          anchorX={anchorFor(currentIndex + 1)}
-          anchorY="middle"
-          textAlign={anchorFor(currentIndex + 1)}
-          maxWidth={8}
-          onSync={tuneMaterial}
-          outlineWidth={0.008}
-          outlineColor="#000"
-        >
-          {next.text}
-        </Text>
-      )}
-      {data[currentIndex + 2] && (
-        <Text
-          position={[sideX(currentIndex + 2), -effectiveOffsetY * 2 + extraY(currentIndex + 2), zShift(currentIndex + 2)]} // 下下行Y=-2*行距 + 补偿
-          fontSize={fontSize * scaleFor(currentIndex + 2)}
-          color={colorFor(currentIndex + 2)}
-          anchorX={anchorFor(currentIndex + 2)}
-          anchorY="middle"
-          textAlign={anchorFor(currentIndex + 2)}
-          maxWidth={8}
-          onSync={tuneMaterial}
-          outlineWidth={0.008}
-          outlineColor="#000"
-        >
-          {data[currentIndex + 2].text}
-        </Text>
+
+      {effectiveMode === 'scroll' && (
+        <>
+          {(() => {
+            try {
+              // 渲染 scroll 附近的窗口行
+              const items: React.ReactNode[] = [];
+              const scroll = scrollRef.current;
+              // 若滚动值变化较大，则触发一次 React 层级更新，避免仅依赖 drei 的内部更新
+              if (Math.abs(scroll - lastRenderedScrollRef.current) > 0.001) {
+                lastRenderedScrollRef.current = scroll;
+                setRenderNonce(n => (n + 1) & 0xffff);
+              }
+              const start = Math.max(0, Math.floor(scroll) - effectiveWindowLines);
+              const end = Math.min(data.length - 1, Math.floor(scroll) + effectiveWindowLines);
+               for (let i = start; i <= end; i++) {
+                // 连续滚动的 Y 位置：随着 scroll 连续变化
+                // 前后行使用不同的视觉速度缩放（近快远慢）
+                const layer = ((i % 3) + 3) % 3; // 0=前, 1/2=后
+                const speedScale = layer === 0 ? effectiveFrontScale : effectiveBackScale;
+                 // 每层的“屏幕等距”世界步长（按距离/FOV换算），再叠加逻辑空行倍数
+                 const lineHeight = worldStepLevels(1, i);
+                 const y = (i - scroll * speedScale) * -lineHeight + extraY(i);
+                // 颜色与描边：当前行附近更亮
+                const dist = Math.abs(i - scroll);
+                const isCenterish = dist < 0.5;
+                const color = isCenterish ? '#ffe05a' : '#a8a8a8';
+                const outlineW = isCenterish ? 0.06 : 0.008;
+                const outlineO = isCenterish ? 0.28 : 0.18;
+                items.push(
+                  <Text
+                    key={i}
+                    position={[sideX(i), y, zShift(i)]}
+                    fontSize={fontSize * scaleFor(i)}
+                    color={color}
+                    anchorX={anchorFor(i)}
+                    anchorY="middle"
+                    textAlign={anchorFor(i)}
+                    maxWidth={8}
+                    onSync={(obj:any)=>{ try{ const m=obj?.material; if (!m) return; m.depthTest=true; m.depthWrite=true; m.transparent=true; if('toneMapped' in m) (m as any).toneMapped=false; m.needsUpdate=true; }catch{} }}
+                    outlineWidth={outlineW}
+                    outlineOpacity={outlineO}
+                    outlineBlur={isCenterish ? 0.6 : 0.2}
+                    outlineColor={isCenterish ? '#ffe05a' : '#000'}
+                  >
+                    {data[i].text}
+                  </Text>
+                );
+              }
+              return items;
+            } catch (err) {
+              try { console.warn('[Lyrics3DOverlay] scroll render error', err); } catch {}
+              return null;
+            }
+          })()}
+        </>
       )}
     </group>
   );
