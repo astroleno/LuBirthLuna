@@ -314,7 +314,7 @@ function SceneContent({
       const B = Number((composition.birthPointLatitudeDeg ?? latDeg) || 0);
       const alpha = composition.birthPointAlphaDeg ?? 12;
       const seam = composition.seamOffsetDeg ?? 0;
-      // 计算黄昏点经度：使用“全局太阳方向”（与观测者经纬无关），避免选择器改变经度导致UTC/恒星时变化
+      // 计算黄昏点经度：使用"全局太阳方向"（与观测者经纬无关），避免选择器改变经度导致UTC/恒星时变化
       let lonDusk = 0;
       try {
         const globalSun = getEarthState?.(dateISO, 0, 0, 'byLongitude');
@@ -555,7 +555,7 @@ function SceneContent({
       {(composition.showMoon ?? true) && (
       <Moon
         position={moonInfo.position}
-        radius={composition.moonRadius}
+        radius={composition.moonRadius * 1.5} // 调整月球半径为 1.5 倍；还原请改回 composition.moonRadius
         lightDirection={lightDirection}
         useTextures={composition.useTextures}
         lightColor={lightColor}
@@ -742,6 +742,8 @@ export default function SimpleTest() {
     const t = setTimeout(() => { if (!canceled) setShowAudioLocal(true); }, 1200);
     return () => { canceled = true; clearTimeout(t); };
   }, []);
+  // 音频元素引用：供本地播放器与歌词系统共享
+  const audioElRef = React.useRef<HTMLAudioElement | null>(null);
   
   // DEM地形参数控制状态
   // 客户端模式：进入全景视图时，默认将视口Y偏移设为 2.00（仅首次、且未对齐放大时）
@@ -799,10 +801,10 @@ export default function SimpleTest() {
     return `${year}-${month}-${day}T${hours}:${minutes}`;
   };
 
-  // 🔧 关键修复：基于“同一绝对UTC”计算地球自转角，避免跨日别名与凌晨重复
+  // 🔧 关键修复：基于"同一绝对UTC"计算地球自转角，避免跨日别名与凌晨重复
   const calculateEarthRotationFromDateISO = (dateISOStr: string, longitude: number) => {
     try {
-      // 统一将本地民用时间解析为“绝对UTC”
+      // 统一将本地民用时间解析为"绝对UTC"
       const utc = toUTCFromLocal(dateISOStr, longitude);
       // 当日UTC小时（含小数），包含日期信息，避免 23:xx 与次日 00:xx 折返为同一时刻
       const hoursFloat = ((utc.getTime() % (24 * 3600_000)) + (24 * 3600_000)) % (24 * 3600_000) / 3600_000;
@@ -1302,7 +1304,7 @@ export default function SimpleTest() {
       }}
         title="音乐播放器"
       >
-        {/** 使用本地播放器，切换为 public/audio 下的“王菲 - 但愿人长久.mp3” */}
+        {/** 使用本地播放器，切换为 public/audio 下的"王菲 - 但愿人长久.mp3" */}
         {showAudioLocal ? (
           <LocalAudioPlayer 
             basePath="/"
@@ -1430,7 +1432,7 @@ export default function SimpleTest() {
           birthPointMode={composition.enableBirthPointAlignment}
         />
         {/* 3D 歌词（前 6 行测试） */}
-        {showAudioLocal && <Lyrics3DOverlay audioRef={audioElRef as any} distance={8} baseOffsetX={1.8} baseOffsetY={0.7} />}
+        <Lyrics3DOverlay audioRef={audioElRef as any} distance={6} baseOffsetX={1.8} baseOffsetY={0.9} />
       </Canvas>
       
         
@@ -1790,7 +1792,7 @@ export default function SimpleTest() {
             <div className="col">
               <button className="btn" onClick={() => {
                 try {
-                  // 与“对齐放大”复用同一口径：基于当前地球世界yaw与观察地经度对齐经线
+                  // 与"对齐放大"复用同一口径：基于当前地球世界yaw与观察地经度对齐经线
                   const seam = composition.seamOffsetDeg ?? 0;
                   const L0 = lonDeg || 0;
                   let L = L0; while (L > 180) L -= 360; while (L < -180) L += 360;
@@ -2450,7 +2452,7 @@ export default function SimpleTest() {
                 </div>
               )}
 
-              {/* 大气融合 · 实验参数（仅裁“不可见尾巴”，默认关闭） */}
+              {/* 大气融合 · 实验参数（仅裁"不可见尾巴"，默认关闭） */}
               <div className="row" style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed rgba(255,255,255,0.15)' }}>
                 <div className="col" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <input type="checkbox"
@@ -2725,7 +2727,7 @@ export default function SimpleTest() {
                 <input className="input" type="range" min={0.5} max={2.0} step={0.05}
                        value={composition.segLODTriggerSize ?? 1.0}
                        onChange={(e) => updateValue('segLODTriggerSize', parseFloat(e.target.value))} />
-                <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>也会在“经线对齐并放大”后触发。</div>
+                <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>也会在"经线对齐并放大"后触发。</div>
               </div>
             </div>
           </div>
@@ -3342,7 +3344,7 @@ export default function SimpleTest() {
                     while (L > 180) L -= 360;
                     while (L < -180) L += 360;
 
-                    // 经线居中（考虑自转）：保持“晨昏线居中”的语义
+                    // 经线居中（考虑自转）：保持"晨昏线居中"的语义
                     // yaw = normalize(earthYawDeg - (L + seam))
                     const seam = composition.seamOffsetDeg ?? 0;
                     // 读取真实世界 yaw（包含组 + 网格）
@@ -4060,39 +4062,7 @@ function NoTiltProbe(): JSX.Element | null {
     //   }
     // };
     
-    // 🔧 新增：验证修复后的对齐精度
-    // 🔧 修复：注释掉全局变量，避免内存泄漏和全局状态污染
-    // (window as any).verifyAlignment = (lat: number, lon: number, cityName: string = `${lat}°N,${lon}°E`) => {
-      try {
-        console.log(`[VerifyAlignment] 开始验证 ${cityName} 的对齐精度...`);
-        
-        // 模拟点击经线对齐按钮的逻辑
-        const L0 = lon;
-        let L = L0;
-        while (L > 180) L -= 360;
-        while (L < -180) L += 360;
-        const textureLon = L; // 直接映射，无偏移
-        
-        console.log(`[VerifyAlignment] ${cityName}:`, {
-          输入经度: L0,
-          标准化经度: L.toFixed(2),
-          贴图经度: textureLon.toFixed(2),
-          预期偏移: '0.00° (修复后应该为零)',
-          修复状态: textureLon === L ? '✅ 正确' : '❌ 仍有偏移'
-        });
-        
-        return { 
-          city: cityName,
-          inputLon: L0,
-          textureLon,
-          offset: Math.abs(textureLon - L),
-          isFixed: Math.abs(textureLon - L) < 0.01
-        };
-      } catch (e) {
-        console.error('[VerifyAlignment] 验证失败:', e);
-        return null;
-      }
-    // };
+    // 移除会访问未定义变量 cityName 的验证片段；如需验证，请使用独立的测试工具模块
     
     // 🔧 测试不同偏移量找到正确值
     // 🔧 修复：注释掉全局变量，避免内存泄漏和全局状态污染
@@ -4173,6 +4143,8 @@ function NoTiltProbe(): JSX.Element | null {
     // 只读 composition getter，避免闭包旧值
     // 🔧 修复：注释掉全局变量，避免内存泄漏和全局状态污染
     // (window as any).__getComposition = () => { try { return {}; } catch { return null; } };
+    // 本探针当前仅作为开发期参考，不注册任何副作用
+    return () => { /* no-op cleanup，确保返回的是函数 */ };
   }, [scene]);
   return null;
 }

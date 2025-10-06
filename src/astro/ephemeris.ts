@@ -473,8 +473,8 @@ export function calculateTerminatorLongitude(dateUtc: Date, latDeg: number, lonD
     
     // 首先获取太阳在观测者位置的高度角
     const sunEquator = (EquatorFn as unknown as (body: Body, time: AstroTime, observer?: Observer, ofdate?: boolean, aberration?: boolean) => any)(Body.Sun, time, observer, true, true);
-    const sunRa = sunEquator.ra as number;
-    const sunDec = sunEquator.dec as number;
+    const sunRa = (sunEquator as any)?.ra as number | undefined;
+    const sunDec = (sunEquator as any)?.dec as number | undefined;
     
     console.log('[TerminatorDebug] Sun equatorial coordinates:', { sunRa: sunRa * 180 / Math.PI, sunDec: sunDec * 180 / Math.PI });
     
@@ -482,8 +482,20 @@ export function calculateTerminatorLongitude(dateUtc: Date, latDeg: number, lonD
     // 但这是近似值，准确的计算需要考虑地球曲率和大气折射
     
     // 将太阳赤经赤经转换为经度（简化计算）
-    const sunGst = time.gst; // 格林威治恒星时
-    let sunLongitude = ((sunRa - sunGst * 15) % 360 + 360) % 360; // 太阳地理经度
+    // 某些版本下 gst 可能不存在，做兼容与回退
+    let sunGst: number | undefined = (time as any)?.gst as number | undefined;
+    if (typeof sunGst !== 'number' || !isFinite(sunGst)) {
+      try {
+        // 使用近似GMST回退（度→小时：/15），无需极高精度，仅用于日志与大致经度
+        const d = (dateUtc.getTime() - Date.UTC(2000, 0, 1, 12, 0, 0)) / 86400000; // 自J2000起的日数近似
+        const gmstDeg = (280.46061837 + 360.98564736629 * d) % 360;
+        sunGst = ((gmstDeg % 360) + 360) % 360 / 15; // 转为小时
+      } catch {
+        sunGst = 0; // 最保守回退
+      }
+    }
+    const raNum = typeof sunRa === 'number' ? sunRa : 0;
+    let sunLongitude = ((raNum - (sunGst as number) * 15) % 360 + 360) % 360; // 太阳地理经度（简化）
     if (sunLongitude > 180) sunLongitude -= 360;
     
     // 黄昏点在太阳西侧90°
@@ -491,18 +503,19 @@ export function calculateTerminatorLongitude(dateUtc: Date, latDeg: number, lonD
     if (terminatorLon > 180) terminatorLon -= 360;
     if (terminatorLon < -180) terminatorLon += 360;
     
+    const fmt = (v: any) => (typeof v === 'number' && isFinite(v) ? +v.toFixed(2) : NaN);
     console.log('[TerminatorDebug] Calculation result:', {
-      sunRa: +(sunRa * 180 / Math.PI).toFixed(2),
-      sunGst: +sunGst.toFixed(2),
-      sunLongitude: +sunLongitude.toFixed(2),
-      terminatorLon: +terminatorLon.toFixed(2)
+      sunRa: fmt((raNum) * 180 / Math.PI),
+      sunGst: fmt(sunGst),
+      sunLongitude: fmt(sunLongitude),
+      terminatorLon: fmt(terminatorLon)
     });
     
     logger.log('terminator/calculation', {
-      sunRa: +(sunRa * 180 / Math.PI).toFixed(2),
-      sunGst: +sunGst.toFixed(2),
-      sunLongitude: +sunLongitude.toFixed(2),
-      terminatorLon: +terminatorLon.toFixed(2)
+      sunRa: fmt((raNum) * 180 / Math.PI),
+      sunGst: fmt(sunGst),
+      sunLongitude: fmt(sunLongitude),
+      terminatorLon: fmt(terminatorLon)
     });
     
     return terminatorLon;

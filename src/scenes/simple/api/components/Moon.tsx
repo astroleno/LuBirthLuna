@@ -527,9 +527,9 @@ export function Moon({
       aoMapIntensity: 0,
       emissive: new THREE.Color('#222222'),
       emissiveIntensity: 0.02,
-      // 🌙 深度控制：屏幕锚定时禁用深度测试，确保月球始终在前景
-      depthTest: enableScreenAnchor ? false : true,
-      depthWrite: enableScreenAnchor ? false : true
+      // 🌙 深度控制：即使屏幕锚定也写入深度，避免文本/其他对象穿透
+      depthTest: true,
+      depthWrite: true
     });
   }, [moonMap, moonDisplacementMap, enableUniformShading, sdirWorld, sunDirWorldForShading, lightColor, sunIntensity, terminatorSoftness, moonShadingGamma, tintColor, moonTintStrength, sunDirectionInfo, moonSurgeStrength, moonSurgeSigmaDeg, moonDisplacementScale, moonNormalScale, enableScreenAnchor, lonDeg, nightLift]);
 
@@ -715,6 +715,17 @@ export function Moon({
     }
   }, [position, radius, lightDirection, useTextures, moonMap, moonDisplacementMap, 
        enableTidalLock, enableUniformShading, sdirWorld, moonPhaseResult, observerLat, observerLon, currentDate, sunDirWorldForShading, sunDirectionInfo]);
+
+  // 将月球世界半径暴露给全局，供歌词计算前后层次使用
+  React.useEffect(() => {
+    try {
+      const scale = new THREE.Vector3();
+      meshRef.current?.getWorldScale(scale);
+      const geo = (meshRef.current as any)?.geometry as THREE.BufferGeometry | undefined;
+      const r = geo?.boundingSphere ? geo.boundingSphere.radius * Math.max(scale.x, scale.y, scale.z) : radius;
+      (window as any).__MOON_RADIUS_WORLD = r;
+    } catch {}
+  });
   
   // 辅助函数：根据相位角判断期望的光照方向
   function getExpectedLightingSide(angleRad: number): string {
@@ -778,8 +789,8 @@ export function Moon({
       ref={meshRef}
       name={name}
       position={position}
-      // 🌙 渲染层级控制：确保月球始终在前景显示
-      renderOrder={999}
+      // 🌙 渲染层级控制：避免强制置前以干扰深度
+      // renderOrder={999}
       // 🔧 关键修复：移除rotation prop，避免与四元数旋转冲突
       // 月球旋转现在完全由position控制
     >
