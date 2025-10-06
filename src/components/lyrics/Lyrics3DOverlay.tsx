@@ -189,7 +189,8 @@ export default function Lyrics3DOverlay({ audioRef, distance = 8, baseOffsetX = 
   const hasPrev = currentIndex > 0;
   const prev = hasPrev ? data[currentIndex - 1] : undefined;
   const cur = data[currentIndex];
-  const next = data[Math.min(data.length - 1, currentIndex + 1)];
+  // 边界处理：最后一行时不渲染“下一行”，避免与当前行重复
+  const next = currentIndex + 1 < data.length ? data[currentIndex + 1] : undefined;
 
   const forceFront = false; // 不再使用URL置前
 
@@ -197,10 +198,10 @@ export default function Lyrics3DOverlay({ audioRef, distance = 8, baseOffsetX = 
   // - 左右: 按绝对索引交替（偶=左，奇=右）
   // - 前后: 循环 [前, 后, 后]（索引 % 3 => 0=前, 1=后, 2=后）
   // 四象限独立X偏移（单位：米）——可分别调“前左/前右/后左/后右”的水平位置
-  const FRONT_LEFT_X  = effectiveOffsetX;  // 前+左 的左右距离 ← 改这里
-  const FRONT_RIGHT_X = effectiveOffsetX;  // 前+右 的左右距离 ← 改这里
-  const BACK_LEFT_X   = effectiveOffsetX;  // 后+左 的左右距离 ← 改这里
-  const BACK_RIGHT_X  = effectiveOffsetX;  // 后+右 的左右距离 ← 改这里
+  const FRONT_LEFT_X  = 3;  // 前+左 的左右距离 ← 改这里
+  const FRONT_RIGHT_X = 3;  // 前+右 的左右距离 ← 改这里
+  const BACK_LEFT_X   = 2.5;  // 后+左 的左右距离 ← 改这里
+  const BACK_RIGHT_X  = 2.5;  // 后+右 的左右距离 ← 改这里
   const sideX = (idx: number) => { // 根据“前/后 + 左/右”返回X位置
     const isLeft = (idx % 2 === 0);              // 偶=左，奇=右（与行号一致）
     const isFront = (((idx % 3) + 3) % 3) === 0; // 0=前，1/2=后
